@@ -12,7 +12,7 @@ import base64
 from hashlib import md5
 from werkzeug.http import parse_authorization_header
 
-from flask import request, make_response
+from bustard.http import Response
 from six.moves.urllib.parse import urlparse, urlunparse
 
 
@@ -62,7 +62,7 @@ ACCEPTED_MEDIA_TYPES = [
     'image/*'
 ]
 
-ANGRY_ASCII ="""
+ANGRY_ASCII = """
           .-''''''-.
         .' _      _ '.
        /   O      O   \\
@@ -79,7 +79,8 @@ ANGRY_ASCII ="""
 def json_safe(string, content_type='application/octet-stream'):
     """Returns JSON-safe version of `string`.
 
-    If `string` is a Unicode string or a valid UTF-8, it is returned unmodified,
+    If `string` is a Unicode string or a valid UTF-8,
+    it is returned unmodified,
     as it can safely be encoded to JSON string.
 
     If `string` contains raw/binary data, it is Base64-encoded, formatted and
@@ -89,7 +90,7 @@ def json_safe(string, content_type='application/octet-stream'):
     """
     try:
         string = string.decode('utf-8')
-        _encoded = json.dumps(string)
+        json.dumps(string)
         return string
     except (ValueError, TypeError):
         return b''.join([
@@ -100,13 +101,15 @@ def json_safe(string, content_type='application/octet-stream'):
         ]).decode('utf-8')
 
 
-def get_files():
+def get_files(request):
     """Returns files dict from request context."""
 
     files = dict()
 
     for k, v in request.files.items():
-        content_type = request.files[k].content_type or 'application/octet-stream'
+        content_type = (
+            request.files[k].content_type or 'application/octet-stream'
+        )
         val = json_safe(v.read(), content_type)
         if files.get(k):
             if not isinstance(files[k], list):
@@ -118,7 +121,7 @@ def get_files():
     return files
 
 
-def get_headers(hide_env=True):
+def get_headers(request, hide_env=True):
     """Returns headers dict from request context."""
 
     headers = dict(request.headers.items())
@@ -138,7 +141,7 @@ def semiflatten(multi):
     for a key, the result will have a list of values for the key. Otherwise it
     will have the plain value."""
     if multi:
-        result = multi.to_dict(flat=False)
+        result = multi.to_dict()
         for k, v in result.items():
             if len(v) == 1:
                 result[k] = v[0]
@@ -146,13 +149,17 @@ def semiflatten(multi):
     else:
         return multi
 
+
 def get_url(request):
     """
     Since we might be hosted behind a proxy, we need to check the
     X-Forwarded-Proto, X-Forwarded-Protocol, or X-Forwarded-SSL headers
     to find out what protocol was used to access us.
     """
-    protocol = request.headers.get('X-Forwarded-Proto') or request.headers.get('X-Forwarded-Protocol')
+    protocol = (
+        request.headers.get('X-Forwarded-Proto') or
+        request.headers.get('X-Forwarded-Protocol')
+    )
     if protocol is None and request.headers.get('X-Forwarded-Ssl') == 'on':
         protocol = 'https'
     if protocol is None:
@@ -162,10 +169,11 @@ def get_url(request):
     return urlunparse(url)
 
 
-def get_dict(*keys, **extras):
+def get_dict(request, *keys, **extras):
     """Returns request dict of given keys."""
 
-    _keys = ('url', 'args', 'form', 'data', 'origin', 'headers', 'files', 'json')
+    _keys = ('url', 'args', 'form', 'data', 'origin', 'headers',
+             'files', 'json')
 
     assert all(map(_keys.__contains__, keys))
     data = request.data
@@ -183,8 +191,8 @@ def get_dict(*keys, **extras):
         form=form,
         data=json_safe(data),
         origin=request.headers.get('X-Forwarded-For', request.remote_addr),
-        headers=get_headers(),
-        files=get_files(),
+        headers=get_headers(request),
+        files=get_files(request),
         json=_json
     )
 
@@ -218,8 +226,8 @@ def status_code(code):
             }
         ),
         406: dict(data=json.dumps({
-                'message': 'Client did not request a supported media type.',
-                'accept': ACCEPTED_MEDIA_TYPES
+            'message': 'Client did not request a supported media type.',
+            'accept': ACCEPTED_MEDIA_TYPES
             }),
             headers={
                 'Content-Type': 'application/json'
@@ -234,7 +242,7 @@ def status_code(code):
 
     }
 
-    r = make_response()
+    r = Response()
     r.status_code = code
 
     if code in code_map:
@@ -249,16 +257,15 @@ def status_code(code):
     return r
 
 
-def check_basic_auth(user, passwd):
+def check_basic_auth(request, user, passwd):
     """Checks user authentication using HTTP Basic Auth."""
 
     auth = request.authorization
     return auth and auth.username == user and auth.password == passwd
 
-
-
 # Digest auth helpers
 # qop is a quality of protection
+
 
 def H(data):
     return md5(data).hexdigest()
@@ -272,8 +279,8 @@ def HA1(realm, username, password):
     if not realm:
         realm = u''
     return H(b":".join([username.encode('utf-8'),
-                           realm.encode('utf-8'),
-                           password.encode('utf-8')]))
+                        realm.encode('utf-8'),
+                        password.encode('utf-8')]))
 
 
 def HA2(credentails, request):
@@ -285,7 +292,8 @@ def HA2(credentails, request):
         HA2 = md5(A2) = MD5(method:digestURI:MD5(entityBody))
     """
     if credentails.get("qop") == "auth" or credentails.get('qop') is None:
-        return H(b":".join([request['method'].encode('utf-8'), request['uri'].encode('utf-8')]))
+        return H(b":".join([request['method'].encode('utf-8'),
+                 request['uri'].encode('utf-8')]))
     elif credentails.get("qop") == "auth-int":
         for k in 'method', 'uri', 'body':
             if k not in request:
@@ -299,9 +307,11 @@ def HA2(credentails, request):
 def response(credentails, password, request):
     """Compile digest auth response
 
-    If the qop directive's value is "auth" or "auth-int" , then compute the response as follows:
+    If the qop directive's value is "auth" or "auth-int" ,
+    then compute the response as follows:
        RESPONSE = MD5(HA1:nonce:nonceCount:clienNonce:qop:HA2)
-    Else if the qop directive is unspecified, then compute the response as follows:
+    Else if the qop directive is unspecified,
+    then compute the response as follows:
        RESPONSE = MD5(HA1:nonce:HA2)
 
     Arguments:
@@ -318,11 +328,12 @@ def response(credentails, password, request):
     HA2_value = HA2(credentails, request)
     if credentails.get('qop') is None:
         response = H(b":".join([
-            HA1_value.encode('utf-8'), 
+            HA1_value.encode('utf-8'),
             credentails.get('nonce', '').encode('utf-8'),
             HA2_value.encode('utf-8')
         ]))
-    elif credentails.get('qop') == 'auth' or credentails.get('qop') == 'auth-int':
+    elif (credentails.get('qop') == 'auth' or
+          credentails.get('qop') == 'auth-int'):
         for k in 'nonce', 'nc', 'cnonce', 'qop':
             if k not in credentails:
                 raise ValueError("%s required for response H" % k)
@@ -338,29 +349,35 @@ def response(credentails, password, request):
     return response
 
 
-def check_digest_auth(user, passwd):
+def check_digest_auth(request, user, passwd):
     """Check user authentication using HTTP Digest auth"""
 
     if request.headers.get('Authorization'):
-        credentails = parse_authorization_header(request.headers.get('Authorization'))
+        credentails = parse_authorization_header(
+            request.headers.get('Authorization')
+        )
         if not credentails:
             return
-        response_hash = response(credentails, passwd, dict(uri=request.script_root + request.path,
-                                                           body=request.data,
-                                                           method=request.method))
+        response_hash = response(credentails, passwd,
+                                 dict(uri=request.script_root + request.path,
+                                      body=request.data,
+                                      method=request.method))
         if credentails.get('response') == response_hash:
             return True
     return False
 
-def secure_cookie():
+
+def secure_cookie(request):
     """Return true if cookie should have secure attribute"""
     return request.environ['wsgi.url_scheme'] == 'https'
+
 
 def __parse_request_range(range_header_text):
     """ Return a tuple describing the byte range requested in a GET request
     If the range is open ended on the left or right side, then a value of None
     will be set.
-    RFC7233: http://svn.tools.ietf.org/svn/wg/httpbis/specs/rfc7233.html#header.range
+    RFC7233:
+      http://svn.tools.ietf.org/svn/wg/httpbis/specs/rfc7233.html#header.range
     Examples:
       Range : bytes=1024-
       Range : bytes=10-20
@@ -395,8 +412,11 @@ def __parse_request_range(range_header_text):
 
     return left, right
 
+
 def get_request_range(request_headers, upper_bound):
-    first_byte_pos, last_byte_pos = __parse_request_range(request_headers['range'])
+    first_byte_pos, last_byte_pos = __parse_request_range(
+        request_headers['range']
+    )
 
     if first_byte_pos is None and last_byte_pos is None:
         # Request full range
@@ -411,4 +431,3 @@ def get_request_range(request_headers, upper_bound):
         last_byte_pos = upper_bound - 1
 
     return first_byte_pos, last_byte_pos
-

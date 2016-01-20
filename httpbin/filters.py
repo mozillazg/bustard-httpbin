@@ -14,11 +14,8 @@ from six import BytesIO
 from decimal import Decimal
 from time import time as now
 
+from bustard.http import Response
 from decorator import decorator
-from flask import Flask, Response
-
-
-app = Flask(__name__)
 
 
 @decorator
