@@ -222,5 +222,5 @@ SEE ALSO
 - http://requestb.in
 - http://python-requests.org
 
-.. |Build Status| image:: https://travis-ci.org/Runscope/httpbin.svg
-   :target: https://travis-ci.org/Runscope/httpbin
+.. |Build Status| image:: https://travis-ci.org/mozillazg/bustard-httpbin.svg?branch=bustard
+   :target: https://travis-ci.org/mozillazg/bustard-httpbin
